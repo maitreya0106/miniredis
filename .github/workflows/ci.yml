@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -34,7 +34,7 @@ jobs:
     env:
       CXX: clang++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # TSan's shadow memory layout does not fit the default ASLR entropy on recent kernels.
       - name: Reduce ASLR entropy for TSan
         if: matrix.sanitizer == 'thread'
@@ -52,8 +52,8 @@ jobs:
     env:
       CXX: clang++
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install pinned tools
@@ -69,7 +69,7 @@ jobs:
     name: Docker image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build image (runs the test suite)
         run: docker build -t miniredis .
       - name: Smoke test
