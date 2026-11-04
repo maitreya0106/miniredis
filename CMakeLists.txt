@@ -32,6 +32,8 @@ target_compile_options(miniredis_warnings INTERFACE
     -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast)
 
 add_library(miniredis_core STATIC
+    src/protocol/inline_parser.cpp
+    src/protocol/reply.cpp
     src/server/thread_pool.cpp
     src/store/store.cpp)
 target_include_directories(miniredis_core PUBLIC src)

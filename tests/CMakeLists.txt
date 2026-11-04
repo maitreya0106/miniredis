@@ -12,6 +12,8 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(miniredis_tests
+    inline_parser_test.cpp
+    reply_test.cpp
     store_test.cpp
     thread_pool_test.cpp)
 target_link_libraries(miniredis_tests PRIVATE miniredis_core miniredis_warnings GTest::gtest_main)
