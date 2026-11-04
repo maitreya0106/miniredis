@@ -12,6 +12,7 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(miniredis_tests
+    store_test.cpp
     thread_pool_test.cpp)
 target_link_libraries(miniredis_tests PRIVATE miniredis_core miniredis_warnings GTest::gtest_main)
 gtest_discover_tests(miniredis_tests DISCOVERY_TIMEOUT 30 PROPERTIES TIMEOUT 60)

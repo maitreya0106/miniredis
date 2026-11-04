@@ -32,7 +32,8 @@ target_compile_options(miniredis_warnings INTERFACE
     -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast)
 
 add_library(miniredis_core STATIC
-    src/server/thread_pool.cpp)
+    src/server/thread_pool.cpp
+    src/store/store.cpp)
 target_include_directories(miniredis_core PUBLIC src)
 target_link_libraries(miniredis_core PUBLIC Threads::Threads PRIVATE miniredis_warnings)
 
