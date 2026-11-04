@@ -183,6 +183,15 @@ Reply pexpireat(Store& store, const Command& command) {
     return integer(store.expire_at(command[1], *deadline) ? 1 : 0);
 }
 
+// Only so redis-benchmark can probe the server: it asks for "save" and "appendonly" on start-up.
+// Like Redis, an unknown parameter yields an empty list.
+Reply config(Store& /*store*/, const Command& command) {
+    if (to_upper(command[1]) != "GET" || command.size() != 3) {
+        return error("ERR only CONFIG GET <parameter> is supported");
+    }
+    return ArrayReply{};
+}
+
 Reply ttl(Store& store, const Command& command) {
     const Ttl ttl = store.ttl(command[1]);
     switch (ttl.state) {
@@ -203,6 +212,7 @@ const CommandSpec* find_command(const std::string& name) {
         {"GET", {get, 2}},        {"DEL", {del, -2}},
         {"EXISTS", {exists, -2}}, {"EXPIRE", {expire, 3}},
         {"TTL", {ttl, 2}},        {"PEXPIREAT", {pexpireat, 3}},
+        {"CONFIG", {config, -2}},
     };
     auto it = commands.find(to_upper(name));
     return it == commands.end() ? nullptr : &it->second;

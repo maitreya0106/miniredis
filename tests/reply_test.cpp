@@ -18,6 +18,9 @@ TEST(ReplyTest, EncodesEveryType) {
     EXPECT_EQ(encode(BulkString{"hi"}), "$2\r\nhi\r\n");
     EXPECT_EQ(encode(BulkString{""}), "$0\r\n\r\n");
     EXPECT_EQ(encode(NilReply{}), "$-1\r\n");
+    EXPECT_EQ(encode(ArrayReply{}), "*0\r\n");
+    EXPECT_EQ(encode(ArrayReply{{BulkString{"a"}, BulkString{"bc"}}}),
+              "*2\r\n$1\r\na\r\n$2\r\nbc\r\n");
 }
 
 TEST(ReplyTest, BulkStringIsBinarySafe) {

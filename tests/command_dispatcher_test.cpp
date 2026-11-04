@@ -126,5 +126,11 @@ TEST_F(CommandDispatcherTest, AbsoluteDeadlineInThePastDeletes) {
     EXPECT_EQ(run({"EXISTS", "b"}), ":0\r\n");
 }
 
+TEST_F(CommandDispatcherTest, ConfigGetAnswersWithEmptyList) {
+    EXPECT_EQ(run({"CONFIG", "GET", "save"}), "*0\r\n");
+    EXPECT_EQ(run({"CONFIG", "SET", "save", ""}),
+              "-ERR only CONFIG GET <parameter> is supported\r\n");
+}
+
 }  // namespace
 }  // namespace miniredis

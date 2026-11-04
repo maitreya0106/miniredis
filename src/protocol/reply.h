@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace miniredis {
 
@@ -20,7 +21,12 @@ struct BulkString {
 
 struct NilReply {};
 
-using Reply = std::variant<SimpleString, ErrorReply, std::int64_t, BulkString, NilReply>;
+struct ArrayReply {
+    std::vector<BulkString> items;
+};
+
+using Reply =
+    std::variant<SimpleString, ErrorReply, std::int64_t, BulkString, NilReply, ArrayReply>;
 
 inline Reply ok() {
     return SimpleString{"OK"};

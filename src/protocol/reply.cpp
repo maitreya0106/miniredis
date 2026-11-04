@@ -12,6 +12,12 @@ void append_line(std::string& out, char prefix, const std::string& body) {
     out += "\r\n";
 }
 
+void append_bulk(std::string& out, const std::string& value) {
+    append_line(out, '$', std::to_string(value.size()));
+    out += value;
+    out += "\r\n";
+}
+
 }  // namespace
 
 void append_reply(std::string& out, const Reply& reply) {
@@ -25,9 +31,12 @@ void append_reply(std::string& out, const Reply& reply) {
             } else if constexpr (std::is_same_v<T, std::int64_t>) {
                 append_line(out, ':', std::to_string(value));
             } else if constexpr (std::is_same_v<T, BulkString>) {
-                append_line(out, '$', std::to_string(value.value.size()));
-                out += value.value;
-                out += "\r\n";
+                append_bulk(out, value.value);
+            } else if constexpr (std::is_same_v<T, ArrayReply>) {
+                append_line(out, '*', std::to_string(value.items.size()));
+                for (const auto& item : value.items) {
+                    append_bulk(out, item.value);
+                }
             } else {
                 out += "$-1\r\n";
             }
