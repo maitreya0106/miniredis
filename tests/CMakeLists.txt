@@ -12,15 +12,22 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(miniredis_tests
+    aof_test.cpp
     command_dispatcher_test.cpp
     config_test.cpp
+    crash_test.cpp
     expiry_sweeper_test.cpp
     inline_parser_test.cpp
     lru_list_test.cpp
     reply_test.cpp
+    resp_test.cpp
+    server_process.cpp
     server_test.cpp
     store_test.cpp
     test_client.cpp
     thread_pool_test.cpp)
 target_link_libraries(miniredis_tests PRIVATE miniredis_core miniredis_warnings GTest::gtest_main)
+# The crash tests run the real server binary as a child process.
+target_compile_definitions(miniredis_tests PRIVATE MINIREDIS_BINARY="$<TARGET_FILE:miniredis>")
+add_dependencies(miniredis_tests miniredis)
 gtest_discover_tests(miniredis_tests DISCOVERY_TIMEOUT 30 PROPERTIES TIMEOUT 60)

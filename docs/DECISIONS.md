@@ -82,3 +82,41 @@ Deadlines are stored as `system_clock` milliseconds since the epoch. A monotonic
 - *Approximate LRU* (Redis samples 5 keys and evicts the oldest): no list at all, less memory, not exact.
 
 **Why reads take the exclusive lock:** a `GET` moves the key to the front of the list, which is a write. That's the main reason a `shared_mutex` wouldn't help (see entry 3).
+
+## 10. Append-only file: what is logged, and when
+
+**Chosen:** The store calls a `WriteLog` interface for every mutation *while holding its lock, before applying the change*. `AofWriter` implements it.
+
+- **Same lock, same order.** If logging happened outside the store lock, two concurrent `SET k` could be applied A→B but logged B→A, and a replay would restore the wrong value. Logging inside the critical section makes the file order equal the memory order.
+- **Log before apply.** A crash between the two means the write is in the log but the client never got a reply. Replaying it is harmless, because the client didn't see success either way. The opposite order could acknowledge a write that was never logged.
+- **Effects, not requests.** Commands are rewritten into deterministic forms:
+  - `SET k v EX 10` → `SET k v PXAT <unix-ms>`, and `EXPIRE` → `PEXPIREAT`. A replay an hour later mustn't restart a 10-second countdown.
+  - Lazy and active expirations and LRU evictions are logged as `DEL`. Replay then never depends on the clock or on the read pattern that shaped the LRU order (reads aren't logged).
+  - An eviction's `DEL` is logged *before* the `SET` that triggered it, so the replay never needs to pick a victim itself.
+- Replay runs commands through the normal `CommandDispatcher`, with the write log detached so replayed commands aren't appended again.
+
+## 11. AOF format: RESP
+
+The file is a sequence of RESP arrays, the same format Redis uses and the same parser the network uses. Records are length-prefixed and binary-safe: values can contain spaces, newlines or NUL bytes.
+
+**Torn writes:** a crash or power loss can leave a partial final record. On startup, an *incomplete* record at the end is truncated with a warning. A *malformed* record anywhere is real corruption, and the server refuses to start, matching Redis's `aof-load-truncated yes` behaviour.
+
+## 12. fsync policy: `always` vs `everysec`
+
+| | `always` | `everysec` (default) |
+|---|---|---|
+| When data reaches the disk | before the reply is sent | within ~1 s, from a background thread |
+| Lost on power failure / kernel panic | nothing acknowledged | up to ~1 s of writes |
+| Lost on process crash (`kill -9`) | nothing | **nothing**: `write()` already put it in the kernel page cache |
+| Cost | one disk flush per write, under the store lock, so it serializes all clients | almost free |
+
+The last row is the subtle one. fsync protects against the *machine* dying, not the *process*. The crash test kills the server with SIGKILL under both policies and checks that every acknowledged write survives.
+
+Platform details:
+- On macOS, `fsync()` only pushes data to the drive's volatile cache, so the writer uses `fcntl(F_FULLFSYNC)`. That's why `always` is far slower on a Mac.
+- On Linux, `fdatasync()` skips non-essential metadata.
+- When the AOF is first created, the parent directory is fsynced as well, or the file itself could vanish after a power loss.
+
+**Write failures fail stop.** If `write()` or `fsync()` fails, the server aborts. Continuing could leave a hole in the middle of the log, or acknowledge writes that aren't durable. Dying leaves at worst a torn tail, which startup repairs.
+
+**Not built:** AOF rewriting/compaction (`BGREWRITEAOF`). The file grows forever, and replay time grows with it.

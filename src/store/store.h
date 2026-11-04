@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "store/lru_list.h"
+#include "store/write_log.h"
 
 namespace miniredis {
 
@@ -39,6 +40,9 @@ public:
 
     TimePoint now() const { return options_.now(); }
 
+    // Not thread-safe: attach before clients or the sweeper start. nullptr detaches.
+    void set_write_log(WriteLog* log) noexcept { log_ = log; }
+
     // Replaces the value and any previous TTL. A deadline already in the past deletes the key.
     void set(const std::string& key, std::string value,
              std::optional<TimePoint> expires_at = std::nullopt);
@@ -56,7 +60,7 @@ public:
         std::size_t removed = 0;
         for (; first != last; ++first) {
             if (Entry* entry = find_live(*first, current)) {
-                erase(*entry);
+                log_and_erase(*entry);
                 ++removed;
             }
         }
@@ -95,6 +99,8 @@ private:
     Entry* find_live(const std::string& key, TimePoint current);
     Entry& insert(const std::string& key);
     void erase(Entry& entry);
+    void log_and_erase(Entry& entry);
+    void log(const Command& command);
     void evict_least_recent();
     void set_deadline(Entry& entry, TimePoint deadline);
     void clear_deadline(Entry& entry);
@@ -105,6 +111,7 @@ private:
     }
 
     StoreOptions options_;
+    WriteLog* log_ = nullptr;
     mutable std::mutex mutex_;
     // Element addresses stay valid across rehashing, which is what lets the LRU list and the
     // volatile-key index hold plain pointers into the map.

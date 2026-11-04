@@ -32,8 +32,11 @@ target_compile_options(miniredis_warnings INTERFACE
     -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast)
 
 add_library(miniredis_core STATIC
+    src/persistence/aof_loader.cpp
+    src/persistence/aof_writer.cpp
     src/protocol/inline_parser.cpp
     src/protocol/reply.cpp
+    src/protocol/resp.cpp
     src/server/command_dispatcher.cpp
     src/server/config.cpp
     src/server/connection.cpp

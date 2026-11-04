@@ -108,5 +108,23 @@ TEST_F(CommandDispatcherTest, ExpireRejectsBadNumbers) {
     EXPECT_EQ(run({"TTL", "k"}), ":-1\r\n");
 }
 
+TEST_F(CommandDispatcherTest, AbsoluteExpiryForms) {
+    EXPECT_EQ(run({"SET", "a", "v", "PXAT", "1005000"}), "+OK\r\n");
+    EXPECT_EQ(run({"TTL", "a"}), ":5\r\n");
+    EXPECT_EQ(run({"SET", "b", "v", "EXAT", "1010"}), "+OK\r\n");
+    EXPECT_EQ(run({"TTL", "b"}), ":10\r\n");
+    EXPECT_EQ(run({"PEXPIREAT", "a", "1060000"}), ":1\r\n");
+    EXPECT_EQ(run({"TTL", "a"}), ":60\r\n");
+    EXPECT_EQ(run({"PEXPIREAT", "missing", "1060000"}), ":0\r\n");
+}
+
+TEST_F(CommandDispatcherTest, AbsoluteDeadlineInThePastDeletes) {
+    run({"SET", "a", "v"});
+    EXPECT_EQ(run({"PEXPIREAT", "a", "5"}), ":1\r\n");
+    EXPECT_EQ(run({"EXISTS", "a"}), ":0\r\n");
+    EXPECT_EQ(run({"SET", "b", "v", "PXAT", "5"}), "+OK\r\n");
+    EXPECT_EQ(run({"EXISTS", "b"}), ":0\r\n");
+}
+
 }  // namespace
 }  // namespace miniredis

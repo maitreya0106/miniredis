@@ -4,10 +4,15 @@
 #include <csignal>
 #include <exception>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
 
+#include "persistence/aof_loader.h"
+#include "persistence/aof_writer.h"
 #include "server/command_dispatcher.h"
 #include "server/config.h"
 #include "server/server.h"
@@ -61,14 +66,38 @@ private:
     std::thread thread_;
 };
 
+// Replays the log through the normal command path, then starts appending to it. The write log is
+// attached only afterwards, so replayed commands are not written back to the file.
+std::unique_ptr<AofWriter> restore_from_aof(const Config& config, Store& store,
+                                            CommandDispatcher& dispatcher) {
+    const AofLoadResult loaded = load_aof(config.aof_path, [&dispatcher](const Command& command) {
+        const Reply reply = dispatcher.execute(command);
+        if (const auto* failure = std::get_if<ErrorReply>(&reply)) {
+            throw std::runtime_error("AOF replay failed: " + failure->message);
+        }
+    });
+    std::cout << "Loaded " << loaded.commands << " commands from " << config.aof_path << '\n';
+    if (loaded.truncated_bytes > 0) {
+        std::cout << "Truncated " << loaded.truncated_bytes
+                  << " bytes of incomplete trailing record (likely an interrupted write)\n";
+    }
+
+    auto writer = std::make_unique<AofWriter>(config.aof_path, config.fsync);
+    store.set_write_log(writer.get());
+    return writer;
+}
+
 int run(const Config& config) {
     const sigset_t shutdown_signals = block_shutdown_signals();
 
     StoreOptions store_options;
     store_options.max_keys = config.max_keys;
     Store store(store_options);
-    const ExpirySweeper sweeper(store);
     CommandDispatcher dispatcher(store);
+    // Declared before the threads that write to the store so it is destroyed after they stop.
+    const std::unique_ptr<AofWriter> aof =
+        config.aof_path.empty() ? nullptr : restore_from_aof(config, store, dispatcher);
+    const ExpirySweeper sweeper(store);
     Server server(config.server, dispatcher);
     const SignalWaiter signal_waiter(shutdown_signals, [&server] { server.stop(); });
 

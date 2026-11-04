@@ -4,6 +4,10 @@ namespace miniredis {
 
 namespace {
 
+std::string to_unix_ms(TimePoint deadline) {
+    return std::to_string(deadline.time_since_epoch().count());
+}
+
 constexpr std::size_t kSweepSampleSize = 20;
 constexpr auto kSweepTimeBudget = std::chrono::milliseconds(2);
 
@@ -18,11 +22,21 @@ void Store::set(const std::string& key, std::string value, std::optional<TimePoi
     Entry* entry = find_live(key, current);
     if (expires_at && *expires_at <= current) {
         if (entry != nullptr) {
-            erase(*entry);
+            log_and_erase(*entry);
         }
         return;
     }
 
+    // The eviction must reach the log before the SET that caused it: a replay sees no GETs, so
+    // its LRU order differs and it must not be left to pick a victim of its own.
+    if (entry == nullptr && options_.max_keys > 0 && entries_.size() >= options_.max_keys) {
+        evict_least_recent();
+    }
+    // Deadlines are logged as absolute times so a replay does not restart the countdown.
+    if (log_ != nullptr) {
+        log_->append(expires_at ? Command{"SET", key, value, "PXAT", to_unix_ms(*expires_at)}
+                                : Command{"SET", key, value});
+    }
     if (entry == nullptr) {
         entry = &insert(key);
     } else {
@@ -53,9 +67,10 @@ bool Store::expire_at(const std::string& key, TimePoint deadline) {
         return false;
     }
     if (deadline <= current) {
-        erase(*entry);
+        log_and_erase(*entry);
         return true;
     }
+    log({"PEXPIREAT", key, to_unix_ms(deadline)});
     lru_.move_to_front(entry);
     clear_deadline(*entry);
     set_deadline(*entry, deadline);
@@ -107,7 +122,7 @@ std::size_t Store::sweep_sample(TimePoint current) {
         std::uniform_int_distribution<std::size_t> pick(0, volatile_.size() - 1);
         Entry* entry = volatile_[pick(random_)];
         if (is_expired(*entry, current)) {
-            erase(*entry);
+            log_and_erase(*entry);
             ++expired;
         }
     }
@@ -120,16 +135,13 @@ Store::Entry* Store::find_live(const std::string& key, TimePoint current) {
         return nullptr;
     }
     if (is_expired(it->second, current)) {
-        erase(it->second);
+        log_and_erase(it->second);
         return nullptr;
     }
     return &it->second;
 }
 
 Store::Entry& Store::insert(const std::string& key) {
-    if (options_.max_keys > 0 && entries_.size() >= options_.max_keys) {
-        evict_least_recent();
-    }
     auto [it, inserted] = entries_.try_emplace(key);
     Entry& entry = it->second;
     entry.key = &it->first;
@@ -143,9 +155,22 @@ void Store::erase(Entry& entry) {
     entries_.erase(entries_.find(*entry.key));
 }
 
+// Expirations and evictions are logged as DELs, so a replay never depends on clock timing or on
+// the read pattern that shaped the LRU order.
+void Store::log_and_erase(Entry& entry) {
+    log({"DEL", *entry.key});
+    erase(entry);
+}
+
+void Store::log(const Command& command) {
+    if (log_ != nullptr) {
+        log_->append(command);
+    }
+}
+
 void Store::evict_least_recent() {
     if (Entry* victim = lru_.least_recent()) {
-        erase(*victim);
+        log_and_erase(*victim);
     }
 }
 

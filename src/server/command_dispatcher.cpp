@@ -86,22 +86,44 @@ Reply ping(Store& /*store*/, const Command& command) {
     return SimpleString{"PONG"};
 }
 
-std::int64_t expiry_unit_ms(const std::string& option) {
-    if (option == "EX") {
-        return 1000;
+// An absolute deadline at or before the epoch is simply "already expired".
+std::optional<TimePoint> deadline_at(std::int64_t amount, std::int64_t unit_ms) {
+    if (amount <= 0) {
+        return TimePoint{};
     }
-    if (option == "PX") {
-        return 1;
+    if (amount > std::numeric_limits<std::int64_t>::max() / unit_ms) {
+        return std::nullopt;
     }
-    return 0;
+    return TimePoint(std::chrono::milliseconds(amount * unit_ms));
 }
 
-// SET key value [EX seconds | PX milliseconds]
+struct ExpiryOption {
+    bool absolute;
+    std::int64_t unit_ms;
+};
+
+std::optional<ExpiryOption> parse_expiry_option(const std::string& option) {
+    if (option == "EX") {
+        return ExpiryOption{false, 1000};
+    }
+    if (option == "PX") {
+        return ExpiryOption{false, 1};
+    }
+    if (option == "EXAT") {
+        return ExpiryOption{true, 1000};
+    }
+    if (option == "PXAT") {
+        return ExpiryOption{true, 1};
+    }
+    return std::nullopt;
+}
+
+// SET key value [EX seconds | PX milliseconds | EXAT unix-seconds | PXAT unix-milliseconds]
 Reply set(Store& store, const Command& command) {
     std::optional<TimePoint> deadline;
     for (std::size_t i = 3; i < command.size(); i += 2) {
-        const std::int64_t unit_ms = expiry_unit_ms(to_upper(command[i]));
-        if (unit_ms == 0 || deadline || i + 1 >= command.size()) {
+        const auto option = parse_expiry_option(to_upper(command[i]));
+        if (!option || deadline || i + 1 >= command.size()) {
             return error("ERR syntax error");
         }
         const auto amount = parse_int(command[i + 1]);
@@ -111,7 +133,8 @@ Reply set(Store& store, const Command& command) {
         if (*amount <= 0) {
             return invalid_expire("set");
         }
-        deadline = deadline_after(store.now(), *amount, unit_ms);
+        deadline = option->absolute ? deadline_at(*amount, option->unit_ms)
+                                    : deadline_after(store.now(), *amount, option->unit_ms);
         if (!deadline) {
             return invalid_expire("set");
         }
@@ -148,6 +171,18 @@ Reply expire(Store& store, const Command& command) {
     return integer(store.expire_at(command[1], *deadline) ? 1 : 0);
 }
 
+Reply pexpireat(Store& store, const Command& command) {
+    const auto unix_ms = parse_int(command[2]);
+    if (!unix_ms) {
+        return not_an_integer();
+    }
+    const auto deadline = deadline_at(*unix_ms, 1);
+    if (!deadline) {
+        return invalid_expire("pexpireat");
+    }
+    return integer(store.expire_at(command[1], *deadline) ? 1 : 0);
+}
+
 Reply ttl(Store& store, const Command& command) {
     const Ttl ttl = store.ttl(command[1]);
     switch (ttl.state) {
@@ -164,8 +199,10 @@ Reply ttl(Store& store, const Command& command) {
 
 const CommandSpec* find_command(const std::string& name) {
     static const std::unordered_map<std::string, CommandSpec> commands = {
-        {"PING", {ping, -1}},     {"SET", {set, -3}},      {"GET", {get, 2}}, {"DEL", {del, -2}},
-        {"EXISTS", {exists, -2}}, {"EXPIRE", {expire, 3}}, {"TTL", {ttl, 2}},
+        {"PING", {ping, -1}},     {"SET", {set, -3}},
+        {"GET", {get, 2}},        {"DEL", {del, -2}},
+        {"EXISTS", {exists, -2}}, {"EXPIRE", {expire, 3}},
+        {"TTL", {ttl, 2}},        {"PEXPIREAT", {pexpireat, 3}},
     };
     auto it = commands.find(to_upper(name));
     return it == commands.end() ? nullptr : &it->second;

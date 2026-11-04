@@ -17,6 +17,17 @@ TEST(ConfigTest, ParsesMaxKeys) {
     EXPECT_EQ(parse_config({"--maxkeys", "1000"}).max_keys, 1000U);
 }
 
+TEST(ConfigTest, ParsesPersistenceFlags) {
+    const Config defaults = parse_config({});
+    EXPECT_TRUE(defaults.aof_path.empty());
+    EXPECT_EQ(defaults.fsync, FsyncPolicy::EverySecond);
+
+    const Config config = parse_config({"--aof", "/tmp/x.aof", "--fsync", "always"});
+    EXPECT_EQ(config.aof_path, "/tmp/x.aof");
+    EXPECT_EQ(config.fsync, FsyncPolicy::Always);
+    EXPECT_THROW(parse_config({"--fsync", "sometimes"}), std::invalid_argument);
+}
+
 TEST(ConfigTest, ParsesServerFlags) {
     const Config config = parse_config({"--bind", "0.0.0.0", "--port", "7000", "--threads", "4"});
     EXPECT_EQ(config.server.bind_address, "0.0.0.0");

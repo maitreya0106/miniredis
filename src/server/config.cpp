@@ -20,6 +20,16 @@ T parse_number(std::string_view flag, std::string_view text, T min, T max) {
     return value;
 }
 
+FsyncPolicy parse_fsync_policy(const std::string& value) {
+    if (value == "always") {
+        return FsyncPolicy::Always;
+    }
+    if (value == "everysec") {
+        return FsyncPolicy::EverySecond;
+    }
+    throw std::invalid_argument("--fsync expects 'always' or 'everysec'");
+}
+
 }  // namespace
 
 std::string usage() {
@@ -27,8 +37,9 @@ std::string usage() {
            "  --bind <ipv4>       address to listen on (default 127.0.0.1)\n"
            "  --port <n>          TCP port, 0 picks a free one (default 6380)\n"
            "  --threads <n>       worker threads = max concurrent clients (default 16)\n"
-           "  --maxkeys <n>       evict least recently used keys beyond n, 0 = unlimited (default "
-           "0)\n";
+           "  --maxkeys <n>       evict least recently used keys beyond n (default 0 = never)\n"
+           "  --aof <path>        append-only file to log writes to and replay on startup\n"
+           "  --fsync <policy>    always | everysec (default everysec)\n";
 }
 
 Config parse_config(const std::vector<std::string>& args) {
@@ -49,6 +60,10 @@ Config parse_config(const std::vector<std::string>& args) {
         } else if (flag == "--maxkeys") {
             config.max_keys =
                 parse_number<std::size_t>(flag, value, 0, std::numeric_limits<std::size_t>::max());
+        } else if (flag == "--aof") {
+            config.aof_path = value;
+        } else if (flag == "--fsync") {
+            config.fsync = parse_fsync_policy(value);
         } else {
             throw std::invalid_argument("unknown option " + flag);
         }
