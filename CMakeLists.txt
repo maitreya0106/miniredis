@@ -35,11 +35,17 @@ add_library(miniredis_core STATIC
     src/protocol/inline_parser.cpp
     src/protocol/reply.cpp
     src/server/command_dispatcher.cpp
+    src/server/config.cpp
+    src/server/connection.cpp
+    src/server/net.cpp
+    src/server/server.cpp
     src/server/thread_pool.cpp
     src/store/store.cpp)
 target_include_directories(miniredis_core PUBLIC src)
 target_link_libraries(miniredis_core PUBLIC Threads::Threads PRIVATE miniredis_warnings)
 
+add_executable(miniredis src/main.cpp)
+target_link_libraries(miniredis PRIVATE miniredis_core miniredis_warnings)
 
 if(MINIREDIS_BUILD_TESTS)
     enable_testing()
