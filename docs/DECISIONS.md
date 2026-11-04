@@ -120,3 +120,16 @@ Platform details:
 **Write failures fail stop.** If `write()` or `fsync()` fails, the server aborts. Continuing could leave a hole in the middle of the log, or acknowledge writes that aren't durable. Dying leaves at worst a torn tail, which startup repairs.
 
 **Not built:** AOF rewriting/compaction (`BGREWRITEAOF`). The file grows forever, and replay time grows with it.
+
+## 13. RESP on the wire, detected per request
+
+**Chosen:** Requests that start with `*` are parsed as RESP arrays of bulk strings, and anything else as inline commands. The choice is made per request, as in Redis, so `redis-cli`, client libraries and `nc` all share one port. Replies were RESP from the start (entry 4), so Phase 4 only added a parser and touched nothing downstream.
+
+- Only the subset clients send is implemented: arrays of bulk strings. Replies use simple strings, errors, integers, bulk strings, nil and flat arrays (RESP2). `HELLO`/RESP3 aren't implemented. `redis-cli` uses RESP2 by default.
+- **Length limits are checked before allocating**: at most 1M array elements, 512 MB per bulk string, and 64-byte header lines. A hostile `*999999999\r\n` therefore gets a protocol error instead of a huge `reserve()`.
+- `CONFIG GET` returns an empty list, which is what Redis returns for an unknown parameter. That's only so `redis-benchmark` stops warning that it can't read the server config.
+- A malformed request gets an error reply and the connection is closed. After a framing error there's no reliable way to find where the next request starts.
+
+## 14. Benchmark methodology
+
+Both servers run on the same machine, with persistence off (except in the AOF row), using the same random keyspace (`-r 100000`). Each client needs its own worker thread, so MiniRedis runs with `--threads 128` (entry 1). The comparison is honest rather than flattering. Redis's single-threaded event loop beats a lock-and-thread-per-client design once there's more than one client. The 1-client and pipelined rows show where the time actually goes: round trips and syscalls, not the hash map.

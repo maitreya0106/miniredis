@@ -12,8 +12,10 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
 
 FROM ubuntu:24.04
 COPY --from=build /src/build/miniredis /usr/local/bin/miniredis
-RUN useradd --system --no-create-home miniredis
+RUN useradd --system --no-create-home miniredis \
+    && mkdir /data && chown miniredis /data
 USER miniredis
+WORKDIR /data
 EXPOSE 6380
 ENTRYPOINT ["miniredis"]
 CMD ["--bind", "0.0.0.0", "--port", "6380"]
