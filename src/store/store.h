@@ -69,7 +69,9 @@ public:
         const TimePoint current = now();
         std::size_t found = 0;
         for (; first != last; ++first) {
-            found += find_live(*first, current) != nullptr ? 1 : 0;
+            if (find_live(*first, current) != nullptr) {
+                ++found;
+            }
         }
         return found;
     }
