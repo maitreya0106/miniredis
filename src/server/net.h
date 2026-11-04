@@ -9,15 +9,16 @@
 namespace miniredis {
 
 // IPv4 only; `address` must be a dotted-quad literal such as 127.0.0.1 or 0.0.0.0.
-UniqueFd listen_tcp(const std::string& address, std::uint16_t port, int backlog = 511);
-UniqueFd connect_tcp(const std::string& address, std::uint16_t port);
+[[nodiscard]] UniqueFd listen_tcp(const std::string& address, std::uint16_t port,
+                                  int backlog = 511);
+[[nodiscard]] UniqueFd connect_tcp(const std::string& address, std::uint16_t port);
 
 // Returns an invalid fd on transient failures (e.g. the peer reset before we accepted).
-UniqueFd accept_client(const UniqueFd& listener);
+[[nodiscard]] UniqueFd accept_client(const UniqueFd& listener);
 
 std::uint16_t local_port(const UniqueFd& socket);
 
 // Loops over partial writes. Returns false once the peer is gone; never raises SIGPIPE.
-bool send_all(int fd, std::string_view data);
+[[nodiscard]] bool send_all(int fd, std::string_view data);
 
 }  // namespace miniredis

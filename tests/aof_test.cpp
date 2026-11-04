@@ -176,7 +176,9 @@ TEST(AofRoundTripTest, ReplayRestoresValuesAndTtls) {
 
     Store restored;
     CommandDispatcher dispatcher(restored);
-    load_aof(path, [&dispatcher](const Command& command) { dispatcher.execute(command); });
+    const AofLoadResult loaded =
+        load_aof(path, [&dispatcher](const Command& command) { dispatcher.execute(command); });
+    EXPECT_EQ(loaded.commands, 6U);
     EXPECT_EQ(restored.get("plain"), "v");
     EXPECT_EQ(restored.ttl("plain").state, Ttl::State::NoExpiry);
     EXPECT_EQ(restored.get("gone"), std::nullopt);

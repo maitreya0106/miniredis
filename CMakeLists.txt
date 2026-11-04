@@ -25,11 +25,30 @@ elseif(NOT MINIREDIS_SANITIZE STREQUAL "")
 endif()
 
 find_package(Threads REQUIRED)
+include(CheckCXXCompilerFlag)
 
 add_library(miniredis_warnings INTERFACE)
 target_compile_options(miniredis_warnings INTERFACE
     -Wall -Wextra -Wpedantic -Werror
     -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast)
+
+# Hardening that costs next to nothing at runtime: stack protection, fortified libc calls, and
+# bounds-checked standard containers (libc++ hardening mode or libstdc++ assertions).
+add_library(miniredis_hardening INTERFACE)
+target_compile_definitions(miniredis_hardening INTERFACE
+    _LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST _GLIBCXX_ASSERTIONS)
+foreach(flag -fstack-protector-strong -fstack-clash-protection)
+    string(MAKE_C_IDENTIFIER "HAVE${flag}" result)
+    check_cxx_compiler_flag("${flag} -Werror" ${result})
+    if(${result})
+        target_compile_options(miniredis_hardening INTERFACE ${flag})
+    endif()
+endforeach()
+# _FORTIFY_SOURCE needs optimisation and may already be predefined (e.g. by Ubuntu's GCC).
+if(NOT MINIREDIS_SANITIZE)
+    target_compile_options(miniredis_hardening INTERFACE
+        $<$<NOT:$<CONFIG:Debug>>:-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3>)
+endif()
 
 add_library(miniredis_core STATIC
     src/persistence/aof_loader.cpp
@@ -47,7 +66,7 @@ add_library(miniredis_core STATIC
     src/store/expiry_sweeper.cpp
     src/store/store.cpp)
 target_include_directories(miniredis_core PUBLIC src)
-target_link_libraries(miniredis_core PUBLIC Threads::Threads PRIVATE miniredis_warnings)
+target_link_libraries(miniredis_core PUBLIC Threads::Threads miniredis_hardening PRIVATE miniredis_warnings)
 
 add_executable(miniredis src/main.cpp)
 target_link_libraries(miniredis PRIVATE miniredis_core miniredis_warnings)

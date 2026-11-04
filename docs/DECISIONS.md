@@ -133,3 +133,12 @@ Platform details:
 ## 14. Benchmark methodology
 
 Both servers run on the same machine, with persistence off (except in the AOF row), using the same random keyspace (`-r 100000`). Each client needs its own worker thread, so MiniRedis runs with `--threads 128` (entry 1). The comparison is honest rather than flattering. Redis's single-threaded event loop beats a lock-and-thread-per-client design once there's more than one client. The 1-client and pipelined rows show where the time actually goes: round trips and syscalls, not the hash map.
+
+## 15. Compiler hardening
+
+All builds link a `miniredis_hardening` target:
+- `-fstack-protector-strong` and `-fstack-clash-protection`, each enabled only if the compiler accepts it. Apple Clang lacks the second.
+- `_FORTIFY_SOURCE=3` in optimised, non-sanitizer builds. It needs `-O`, and it's undefined first because Ubuntu's GCC predefines it.
+- Bounds-checked standard containers: `_LIBCPP_HARDENING_MODE_FAST` for libc++ and `_GLIBCXX_ASSERTIONS` for libstdc++. An out-of-range `operator[]` then traps instead of silently reading memory.
+
+The runtime cost is around 1%, well inside benchmark noise. Functions whose result must not be ignored (the parsers, `send_all`, the socket factories, `load_aof`) are `[[nodiscard]]`.

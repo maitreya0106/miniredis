@@ -16,6 +16,7 @@ struct AofLoadResult {
 // Replays every record in order through `apply`. A missing file is an empty log. An incomplete
 // final record is what a crash mid-write leaves behind, so it is cut from the file; any other
 // malformed data means real corruption and throws std::runtime_error.
-AofLoadResult load_aof(const std::string& path, const std::function<void(const Command&)>& apply);
+[[nodiscard]] AofLoadResult load_aof(const std::string& path,
+                                     const std::function<void(const Command&)>& apply);
 
 }  // namespace miniredis
