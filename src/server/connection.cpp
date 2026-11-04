@@ -6,7 +6,7 @@
 #include <cerrno>
 #include <string_view>
 
-#include "protocol/inline_parser.h"
+#include "protocol/request_parser.h"
 #include "server/net.h"
 
 namespace miniredis {
@@ -39,7 +39,7 @@ bool Connection::process_input() {
     std::size_t offset = 0;
     bool keep_open = true;
     while (offset < input_.size()) {
-        ParseResult result = parse_inline(std::string_view(input_).substr(offset));
+        ParseResult result = parse_request(std::string_view(input_).substr(offset));
         if (result.status == ParseStatus::Incomplete) {
             break;
         }

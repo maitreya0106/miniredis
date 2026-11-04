@@ -36,6 +36,7 @@ add_library(miniredis_core STATIC
     src/persistence/aof_writer.cpp
     src/protocol/inline_parser.cpp
     src/protocol/reply.cpp
+    src/protocol/request_parser.cpp
     src/protocol/resp.cpp
     src/server/command_dispatcher.cpp
     src/server/config.cpp

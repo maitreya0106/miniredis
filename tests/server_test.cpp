@@ -51,6 +51,31 @@ TEST_F(ServerTest, ServesBasicCommands) {
     EXPECT_EQ(client.request("GET greeting"), "$-1\r\n");
 }
 
+TEST_F(ServerTest, SpeaksRespAndInlineOnTheSameConnection) {
+    TestClient client(port());
+    client.send("*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$10\r\nhello\r\nyou\r\n");
+    EXPECT_EQ(client.read_reply(), "+OK\r\n");
+    EXPECT_EQ(client.request("GET key"), "$10\r\nhello\r\nyou\r\n");
+    client.send("*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n");
+    EXPECT_EQ(client.read_reply(), "$10\r\nhello\r\nyou\r\n");
+}
+
+TEST_F(ServerTest, ReassemblesRespSplitAcrossPackets) {
+    TestClient client(port());
+    const std::string request = "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$5\r\nvalue\r\n";
+    for (const char byte : request) {
+        client.send(std::string(1, byte));
+    }
+    EXPECT_EQ(client.read_reply(), "+OK\r\n");
+}
+
+TEST_F(ServerTest, ClosesConnectionOnMalformedResp) {
+    TestClient client(port());
+    client.send("*1\r\n+PING\r\n");
+    EXPECT_EQ(client.read_reply(), "-ERR Protocol error: expected '$', got '+'\r\n");
+    EXPECT_TRUE(client.closed_by_peer());
+}
+
 TEST_F(ServerTest, AnswersPipelinedRequestsInOrder) {
     TestClient client(port());
     client.send("SET a 1\r\nSET b 2\r\nGET a\r\nGET b\r\n");

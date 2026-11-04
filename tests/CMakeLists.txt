@@ -20,6 +20,7 @@ add_executable(miniredis_tests
     inline_parser_test.cpp
     lru_list_test.cpp
     reply_test.cpp
+    request_parser_test.cpp
     resp_test.cpp
     server_process.cpp
     server_test.cpp
