@@ -11,6 +11,7 @@
 #include "server/command_dispatcher.h"
 #include "server/config.h"
 #include "server/server.h"
+#include "store/expiry_sweeper.h"
 #include "store/store.h"
 
 namespace {
@@ -63,7 +64,10 @@ private:
 int run(const Config& config) {
     const sigset_t shutdown_signals = block_shutdown_signals();
 
-    Store store;
+    StoreOptions store_options;
+    store_options.max_keys = config.max_keys;
+    Store store(store_options);
+    const ExpirySweeper sweeper(store);
     CommandDispatcher dispatcher(store);
     Server server(config.server, dispatcher);
     const SignalWaiter signal_waiter(shutdown_signals, [&server] { server.stop(); });

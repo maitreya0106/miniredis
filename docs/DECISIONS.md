@@ -49,3 +49,36 @@ Each entry records what was chosen, what it was weighed against, and why.
 ## 6. SIGPIPE
 
 Writing to a socket the peer has closed raises SIGPIPE, which kills the process by default. The server uses `MSG_NOSIGNAL` on Linux and `SO_NOSIGPIPE` on macOS, which has no `MSG_NOSIGNAL`. It doesn't change the process-wide signal disposition, so the networking code stays library-safe.
+
+## 7. Expiry: lazy check plus a background sweep (the Redis way)
+
+**Chosen:** Every key may carry an absolute deadline.
+- *Lazy:* each access (`GET`, `EXISTS`, `TTL`, `DEL`, `SET`, `EXPIRE`) first checks the deadline. An expired key is deleted then and there and treated as missing. This alone guarantees correctness: no client ever sees an expired value.
+- *Active:* lazy expiry alone leaks memory for keys that are never read again. An `ExpirySweeper` thread wakes 10 times a second (Redis's default `hz`) and runs Redis's adaptive algorithm. It samples 20 random keys *from the set of keys that have a TTL*, deletes the expired ones, and repeats while more than 25% of the sample had expired, within a 2 ms budget per cycle.
+
+**Alternatives:**
+- *Only lazy:* unbounded memory growth from write-once keys.
+- *Only active, scanning everything:* O(n) work per cycle, and it holds the lock long enough to stall clients.
+- *A min-heap or timer wheel ordered by deadline:* exact and prompt, but an extra O(log n) structure to keep in sync on every TTL change. Random sampling is statistically good enough. It bounds the fraction of expired-but-unreclaimed keys to roughly 25%, at constant cost.
+
+**Data structure:** `volatile_` is a `std::vector<Entry*>` of keys with a TTL. Sampling is a random index (O(1)). Removal swaps the entry with the last element and pops, which is O(1), and each entry stores its own index so it can be found.
+
+**Lock granularity:** the store lock is released between 20-key samples, so a sweep never blocks clients for long.
+
+## 8. Wall-clock deadlines, not `steady_clock`
+
+Deadlines are stored as `system_clock` milliseconds since the epoch. A monotonic clock would be immune to clock jumps, but its epoch is arbitrary (often boot time), so a deadline written to the AOF would be meaningless after a restart. Redis makes the same choice: it persists absolute Unix-time deadlines (`PEXPIREAT`). The clock is injectable (`StoreOptions::now`), so tests control time deterministically with no sleeps.
+
+## 9. LRU eviction: hash map + hand-written intrusive doubly linked list
+
+**Chosen:** With `--maxkeys N`, inserting a new key when the store holds N keys first evicts the least recently used one. `GET`, `SET` and `EXPIRE` count as a use. `EXISTS` and `TTL` don't, because they inspect without using.
+
+- The list is **intrusive**: `lru_prev`/`lru_next` live inside each map entry, so there is no second allocation per key and no `new`/`delete`. Touch, insert and evict are O(1) pointer swaps.
+- This relies on a guarantee of `std::unordered_map`: **rehashing invalidates iterators but not references or pointers to elements**. That's what makes it safe for the list (and `volatile_`) to hold plain `Entry*`.
+- Each entry keeps a pointer to its own key (the map's key, also stable), so the evicted tail can be erased from the map without searching.
+
+**Alternatives:**
+- `std::list` plus a map of iterators: the textbook version, but two allocations per key and the brief asked for a hand-written list.
+- *Approximate LRU* (Redis samples 5 keys and evicts the oldest): no list at all, less memory, not exact.
+
+**Why reads take the exclusive lock:** a `GET` moves the key to the front of the list, which is a write. That's the main reason a `shared_mutex` wouldn't help (see entry 3).

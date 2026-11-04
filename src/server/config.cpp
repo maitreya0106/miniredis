@@ -26,7 +26,9 @@ std::string usage() {
     return "usage: miniredis [options]\n"
            "  --bind <ipv4>       address to listen on (default 127.0.0.1)\n"
            "  --port <n>          TCP port, 0 picks a free one (default 6380)\n"
-           "  --threads <n>       worker threads = max concurrent clients (default 16)\n";
+           "  --threads <n>       worker threads = max concurrent clients (default 16)\n"
+           "  --maxkeys <n>       evict least recently used keys beyond n, 0 = unlimited (default "
+           "0)\n";
 }
 
 Config parse_config(const std::vector<std::string>& args) {
@@ -44,6 +46,9 @@ Config parse_config(const std::vector<std::string>& args) {
             config.server.port = parse_number<std::uint16_t>(flag, value, 0, 65535);
         } else if (flag == "--threads") {
             config.server.threads = parse_number<std::size_t>(flag, value, 1, 4096);
+        } else if (flag == "--maxkeys") {
+            config.max_keys =
+                parse_number<std::size_t>(flag, value, 0, std::numeric_limits<std::size_t>::max());
         } else {
             throw std::invalid_argument("unknown option " + flag);
         }

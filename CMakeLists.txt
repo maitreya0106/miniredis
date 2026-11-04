@@ -40,6 +40,7 @@ add_library(miniredis_core STATIC
     src/server/net.cpp
     src/server/server.cpp
     src/server/thread_pool.cpp
+    src/store/expiry_sweeper.cpp
     src/store/store.cpp)
 target_include_directories(miniredis_core PUBLIC src)
 target_link_libraries(miniredis_core PUBLIC Threads::Threads PRIVATE miniredis_warnings)

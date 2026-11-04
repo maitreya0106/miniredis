@@ -10,6 +10,11 @@ TEST(ConfigTest, Defaults) {
     EXPECT_EQ(config.server.bind_address, "127.0.0.1");
     EXPECT_EQ(config.server.port, 6380);
     EXPECT_EQ(config.server.threads, 16U);
+    EXPECT_EQ(config.max_keys, 0U);
+}
+
+TEST(ConfigTest, ParsesMaxKeys) {
+    EXPECT_EQ(parse_config({"--maxkeys", "1000"}).max_keys, 1000U);
 }
 
 TEST(ConfigTest, ParsesServerFlags) {

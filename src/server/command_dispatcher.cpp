@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <unordered_map>
 
 namespace miniredis {
@@ -43,6 +46,36 @@ Reply integer(std::size_t value) {
     return static_cast<std::int64_t>(value);
 }
 
+Reply not_an_integer() {
+    return error("ERR value is not an integer or out of range");
+}
+
+Reply invalid_expire(const std::string& command) {
+    return error("ERR invalid expire time in '" + command + "' command");
+}
+
+std::optional<std::int64_t> parse_int(const std::string& text) {
+    std::int64_t value = 0;
+    const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (ec != std::errc{} || end != text.data() + text.size()) {
+        return std::nullopt;
+    }
+    return value;
+}
+
+// A non-positive amount means "already expired". Returns nullopt if the deadline would overflow.
+std::optional<TimePoint> deadline_after(TimePoint now, std::int64_t amount, std::int64_t unit_ms) {
+    if (amount <= 0) {
+        return now;
+    }
+    const std::int64_t headroom =
+        std::numeric_limits<std::int64_t>::max() - now.time_since_epoch().count();
+    if (amount > headroom / unit_ms) {
+        return std::nullopt;
+    }
+    return now + std::chrono::milliseconds(amount * unit_ms);
+}
+
 Reply ping(Store& /*store*/, const Command& command) {
     if (command.size() > 2) {
         return wrong_arity(command[0]);
@@ -53,8 +86,37 @@ Reply ping(Store& /*store*/, const Command& command) {
     return SimpleString{"PONG"};
 }
 
+std::int64_t expiry_unit_ms(const std::string& option) {
+    if (option == "EX") {
+        return 1000;
+    }
+    if (option == "PX") {
+        return 1;
+    }
+    return 0;
+}
+
+// SET key value [EX seconds | PX milliseconds]
 Reply set(Store& store, const Command& command) {
-    store.set(command[1], command[2]);
+    std::optional<TimePoint> deadline;
+    for (std::size_t i = 3; i < command.size(); i += 2) {
+        const std::int64_t unit_ms = expiry_unit_ms(to_upper(command[i]));
+        if (unit_ms == 0 || deadline || i + 1 >= command.size()) {
+            return error("ERR syntax error");
+        }
+        const auto amount = parse_int(command[i + 1]);
+        if (!amount) {
+            return not_an_integer();
+        }
+        if (*amount <= 0) {
+            return invalid_expire("set");
+        }
+        deadline = deadline_after(store.now(), *amount, unit_ms);
+        if (!deadline) {
+            return invalid_expire("set");
+        }
+    }
+    store.set(command[1], command[2], deadline);
     return ok();
 }
 
@@ -74,10 +136,36 @@ Reply exists(Store& store, const Command& command) {
     return integer(store.exists(command.begin() + 1, command.end()));
 }
 
+Reply expire(Store& store, const Command& command) {
+    const auto seconds = parse_int(command[2]);
+    if (!seconds) {
+        return not_an_integer();
+    }
+    const auto deadline = deadline_after(store.now(), *seconds, 1000);
+    if (!deadline) {
+        return invalid_expire("expire");
+    }
+    return integer(store.expire_at(command[1], *deadline) ? 1 : 0);
+}
+
+Reply ttl(Store& store, const Command& command) {
+    const Ttl ttl = store.ttl(command[1]);
+    switch (ttl.state) {
+        case Ttl::State::Missing:
+            return std::int64_t{-2};
+        case Ttl::State::NoExpiry:
+            return std::int64_t{-1};
+        case Ttl::State::Expiring:
+            break;
+    }
+    // Rounded to the nearest second, as Redis does.
+    return static_cast<std::int64_t>((ttl.remaining.count() + 500) / 1000);
+}
+
 const CommandSpec* find_command(const std::string& name) {
     static const std::unordered_map<std::string, CommandSpec> commands = {
-        {"PING", {ping, -1}}, {"SET", {set, 3}},        {"GET", {get, 2}},
-        {"DEL", {del, -2}},   {"EXISTS", {exists, -2}},
+        {"PING", {ping, -1}},     {"SET", {set, -3}},      {"GET", {get, 2}}, {"DEL", {del, -2}},
+        {"EXISTS", {exists, -2}}, {"EXPIRE", {expire, 3}}, {"TTL", {ttl, 2}},
     };
     auto it = commands.find(to_upper(name));
     return it == commands.end() ? nullptr : &it->second;

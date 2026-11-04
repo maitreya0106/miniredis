@@ -9,6 +9,7 @@ namespace miniredis {
 
 struct Config {
     ServerOptions server;
+    std::size_t max_keys = 0;
 };
 
 // Throws std::invalid_argument with a user-facing message on bad input.

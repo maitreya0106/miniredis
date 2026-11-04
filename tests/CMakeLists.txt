@@ -14,6 +14,7 @@ include(GoogleTest)
 add_executable(miniredis_tests
     command_dispatcher_test.cpp
     config_test.cpp
+    expiry_sweeper_test.cpp
     inline_parser_test.cpp
     lru_list_test.cpp
     reply_test.cpp
