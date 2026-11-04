@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
+  sanitizers:
+    name: Sanitizer (${{ matrix.sanitizer }})
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, thread]
+    runs-on: ubuntu-latest
+    env:
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      # TSan's shadow memory layout does not fit the default ASLR entropy on recent kernels.
+      - name: Reduce ASLR entropy for TSan
+        if: matrix.sanitizer == 'thread'
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - name: Configure
+        run: cmake -S . -B build -DMINIREDIS_SANITIZE=${{ matrix.sanitizer }}
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
+  lint:
+    name: clang-format and clang-tidy
+    runs-on: ubuntu-latest
+    env:
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned tools
+        run: pip install clang-format==21.1.8 clang-tidy==21.1.6
+      - name: clang-format
+        run: clang-format --dry-run --Werror $(git ls-files '*.cpp' '*.h')
+      - name: clang-tidy
+        run: |
+          cmake -S . -B build -DMINIREDIS_BUILD_TESTS=OFF
+          clang-tidy -p build --quiet $(git ls-files 'src/*.cpp')
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (runs the test suite)
+        run: docker build -t miniredis .
+      - name: Smoke test
+        run: |
+          docker run -d --name miniredis -p 6380:6380 miniredis
+          for _ in $(seq 1 20); do
+            reply=$(printf 'PING\r\n' | nc -w1 127.0.0.1 6380 || true)
+            [ "$reply" = "+PONG" ] && break
+            sleep 0.5
+          done
+          docker logs miniredis
+          [ "$(printf 'PING\r\n' | nc -w1 127.0.0.1 6380 | tr -d '\r')" = "+PONG" ]
